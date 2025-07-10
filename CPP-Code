@@ -1,0 +1,200 @@
+#include <RotaryEncoder.h>
+
+// --- Pin-Definitionen ---
+#define ENCODER1_CLK_PIN 4
+#define ENCODER1_DT_PIN  3
+#define ENCODER1_SW_PIN  2
+#define MOTOR1_ENA_PIN 9
+#define MOTOR1_IN1_PIN 8
+#define MOTOR1_IN2_PIN 12
+
+#define ENCODER2_CLK_PIN 7
+#define ENCODER2_DT_PIN  6
+#define ENCODER2_SW_PIN  5
+#define MOTOR2_AIN1_PIN 10
+#define MOTOR2_AIN2_PIN 11
+
+// Maximale Anzahl an "Schritten" für die Geschwindigkeit.
+#define SPEED_STEPS 100
+// Zeit in Millisekunden für die Taster-Entprellung.
+#define DEBOUNCE_DELAY 50 
+
+// --- Globale Variablen ---
+RotaryEncoder encoder1(ENCODER1_DT_PIN, ENCODER1_CLK_PIN);
+RotaryEncoder encoder2(ENCODER2_DT_PIN, ENCODER2_CLK_PIN);
+
+// Variablen für Motor 1
+int motor1_speed_step = 0;
+int motor1_direction = 1;
+long last_encoder1_pos = 0;
+bool last_motor1_button_state = HIGH;
+unsigned long last_button1_press_time = 0;
+
+// Variablen für Motor 2
+int motor2_speed_step = 0;
+int motor2_direction = 1;
+long last_encoder2_pos = 0;
+bool last_motor2_button_state = HIGH;
+unsigned long last_button2_press_time = 0;
+
+// --- Prototypen für Funktionen ---
+void printMotorStatus(int motor_num, int speed_step, int direction);
+void setMotor1(int speed, int direction);
+void setMotor2(int speed, int direction);
+
+
+void setup() {
+  Serial.begin(9600);
+  Serial.println("Motorsteuerung V6 - Stabil & mit klarer Ausgabe");
+
+  pinMode(ENCODER1_SW_PIN, INPUT_PULLUP);
+  pinMode(ENCODER2_SW_PIN, INPUT_PULLUP);
+
+  pinMode(MOTOR1_ENA_PIN, OUTPUT);
+  pinMode(MOTOR1_IN1_PIN, OUTPUT);
+  pinMode(MOTOR1_IN2_PIN, OUTPUT);
+  
+  pinMode(MOTOR2_AIN1_PIN, OUTPUT);
+  pinMode(MOTOR2_AIN2_PIN, OUTPUT);
+
+  encoder1.setPosition(0);
+  encoder2.setPosition(0);
+  
+  digitalWrite(MOTOR1_IN1_PIN, LOW);
+  digitalWrite(MOTOR1_IN2_PIN, LOW);
+  analogWrite(MOTOR1_ENA_PIN, 0);
+  analogWrite(MOTOR2_AIN1_PIN, 0);
+  analogWrite(MOTOR2_AIN2_PIN, 0);
+}
+
+void loop() {
+  handleEncoder1();
+  handleButton1();
+  
+  handleEncoder2();
+  handleButton2();
+}
+
+// --- Steuerungsfunktionen für Motor 1 ---
+void handleEncoder1() {
+  encoder1.tick();
+  long newPos = encoder1.getPosition();
+
+  if (newPos != last_encoder1_pos) {
+    if (newPos > last_encoder1_pos) motor1_speed_step++;
+    else motor1_speed_step--;
+    
+    motor1_speed_step = constrain(motor1_speed_step, 0, SPEED_STEPS);
+    last_encoder1_pos = newPos;
+    
+    int pwm_speed = map(motor1_speed_step, 0, SPEED_STEPS, 0, 255);
+    setMotor1(pwm_speed, motor1_direction);
+    printMotorStatus(1, motor1_speed_step, motor1_direction);
+  }
+}
+
+void handleButton1() {
+  bool current_button_state = digitalRead(ENCODER1_SW_PIN);
+  
+  if (current_button_state == LOW && last_motor1_button_state == HIGH) {
+    if (millis() - last_button1_press_time > DEBOUNCE_DELAY) {
+      last_button1_press_time = millis();
+
+      motor1_direction *= -1; 
+      
+      int current_pwm_speed = map(motor1_speed_step, 0, SPEED_STEPS, 0, 255);
+      setMotor1(current_pwm_speed, motor1_direction);
+      printMotorStatus(1, motor1_speed_step, motor1_direction);
+    }
+  }
+  last_motor1_button_state = current_button_state;
+}
+
+// --- Steuerungsfunktionen für Motor 2 ---
+void handleEncoder2() {
+  encoder2.tick();
+  long newPos = encoder2.getPosition();
+
+  if (newPos != last_encoder2_pos) {
+    // *** START DER NEUEN LOGIK FÜR DEN AKTIV-BEREICH ***
+    
+    // Fall 1: Es wird aufwärts gedreht
+    if (newPos > last_encoder2_pos) {
+      if (motor2_speed_step == 0) {
+        motor2_speed_step = 50;   // Von 0 direkt auf 50 springen
+      } else {
+        motor2_speed_step++;      // Ansonsten normal hochzählen
+      }
+    } 
+    // Fall 2: Es wird abwärts gedreht
+    else {
+      if (motor2_speed_step <= 50) {
+        motor2_speed_step = 0;    // Bei oder unter 50 springt er auf 0 (AUS)
+      } else {
+        motor2_speed_step--;      // Ansonsten normal runterzählen
+      }
+    }
+    // *** ENDE DER NEUEN LOGIK ***
+        
+    // Der Rest der Funktion bleibt gleich und sorgt für die korrekte Ausführung
+    motor2_speed_step = constrain(motor2_speed_step, 0, SPEED_STEPS);
+    last_encoder2_pos = newPos;
+    
+    int pwm_speed = map(motor2_speed_step, 0, SPEED_STEPS, 0, 255);
+    setMotor2(pwm_speed, motor2_direction);
+    printMotorStatus(2, motor2_speed_step, motor2_direction);
+  }
+}
+
+void handleButton2() {
+  bool current_button_state = digitalRead(ENCODER2_SW_PIN);
+
+  if (current_button_state == LOW && last_motor2_button_state == HIGH) {
+    if (millis() - last_button2_press_time > DEBOUNCE_DELAY) {
+      last_button2_press_time = millis();
+
+      motor2_direction *= -1;
+      
+      int current_pwm_speed = map(motor2_speed_step, 0, SPEED_STEPS, 0, 255);
+      setMotor2(current_pwm_speed, motor2_direction);
+      printMotorStatus(2, motor2_speed_step, motor2_direction);
+    }
+  }
+  last_motor2_button_state = current_button_state;
+}
+
+// --- Hilfsfunktion für die Status-Ausgabe ---
+void printMotorStatus(int motor_num, int speed_step, int direction) {
+  int pwm_val = map(speed_step, 0, SPEED_STEPS, 0, 255);
+  Serial.print("Motor ");
+  Serial.print(motor_num);
+  Serial.print(" | Stufe: ");
+  Serial.print(speed_step);
+  Serial.print(" | PWM: ");
+  Serial.print(pwm_val);
+  Serial.print(" | Richtung: ");
+  Serial.println(direction);
+}
+
+
+// --- Motor-Ansteuerungsfunktionen ---
+void setMotor1(int speed, int direction) {
+  if (direction == 1) {
+    digitalWrite(MOTOR1_IN1_PIN, HIGH);
+    digitalWrite(MOTOR1_IN2_PIN, LOW);
+  } else {
+    digitalWrite(MOTOR1_IN1_PIN, LOW);
+    digitalWrite(MOTOR1_IN2_PIN, HIGH);
+  }
+  analogWrite(MOTOR1_ENA_PIN, speed);
+}
+
+void setMotor2(int speed, int direction) {
+  if (direction == 1) {
+    analogWrite(MOTOR2_AIN1_PIN, speed);
+    analogWrite(MOTOR2_AIN2_PIN, 0);
+  } else {
+    analogWrite(MOTOR2_AIN1_PIN, 0);
+    analogWrite(MOTOR2_AIN2_PIN, speed);
+  }
+}
